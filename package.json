@@ -1,0 +1,10 @@
+{
+  "name": "eslint-plugin-deep-modules",
+  "version": "1.0.0",
+  "license": "0BSD",
+  "type": "commonjs",
+  "main": "index.js",
+  "devDependencies": {
+    "@types/node": "^25.9.2"
+  }
+}
