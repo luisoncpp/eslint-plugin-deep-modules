@@ -2,11 +2,8 @@
 const path = require('path');
 const fs = require('fs');
 
-const fsCache = new Map();
-
 function existsSync(p) {
-  if (!fsCache.has(p)) fsCache.set(p, fs.existsSync(p));
-  return fsCache.get(p);
+  return fs.existsSync(p);
 }
 
 function isDirectory(p) {
@@ -24,16 +21,23 @@ function isDirectChildOf(file, dir) {
   return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel) && !rel.includes(path.sep);
 }
 
-function matchesPattern(filePath, patterns) {
-  const normalized = filePath.replace(/\\/g, '/');
-  return patterns.some(pattern => {
+const compiledPatterns = new Map();
+
+function compilePattern(pattern) {
+  if (!compiledPatterns.has(pattern)) {
     const regexStr = pattern
       .replace(/\\/g, '/')
       .replace(/\./g, '\\.')
       .replace(/\*\*/g, '.*')
       .replace(/(?<!\*)\*(?!\*)/g, '[^/]*');
-    return new RegExp(regexStr).test(normalized);
-  });
+    compiledPatterns.set(pattern, new RegExp(regexStr + '$'));
+  }
+  return compiledPatterns.get(pattern);
+}
+
+function matchesPattern(filePath, patterns) {
+  const normalized = filePath.replace(/\\/g, '/');
+  return patterns.some(pattern => compilePattern(pattern).test(normalized));
 }
 
 /**

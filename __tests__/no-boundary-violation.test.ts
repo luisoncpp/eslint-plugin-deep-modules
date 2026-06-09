@@ -69,6 +69,24 @@ tester.run('no-boundary-violation', rule, {
       options: [{ privatePatterns: [] }],
     },
 
+    // ── parent-relative (../) imports from inside the module ───────────────
+    // a deeper file inside an index module reaches an internal sibling via ../
+    {
+      code: `import { x } from '../internal';`,
+      filename: path.join(fixtures, 'index-pattern/moduleA/sub/deep.ts'),
+    },
+    // a file inside outerModule (but outside innerModule) imports innerModule's
+    // public interface via ../ — allowed because the importer lives inside outerModule
+    {
+      code: `import { x } from '../innerModule';`,
+      filename: path.join(fixtures, 'nested/outerModule/sub/file.ts'),
+    },
+    // a file inside innerModule re-imports its parent module's index via ../
+    {
+      code: `import { x } from '../index';`,
+      filename: path.join(fixtures, 'nested/outerModule/innerModule/internal.ts'),
+    },
+
     // ── non-relative imports are always ignored ────────────────────────────
     {
       code: `import React from 'react';`,
@@ -132,6 +150,26 @@ tester.run('no-boundary-violation', rule, {
       code: `import { x } from './outerModule/insideFile';`,
       filename: path.join(fixtures, 'nested/outsider.ts'),
       errors: [{ messageId: 'boundaryViolation' }],
+    },
+
+    // ── parent-relative (../) imports that bypass a boundary ───────────────
+    // ../ crossing into another top-level module's internals
+    {
+      code: `import { x } from '../index-pattern/moduleA/internal';`,
+      filename: path.join(fixtures, 'filefolder-pattern/Consumer.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
+    },
+    // a file inside outerModule uses ../ to bypass innerModule's public interface
+    {
+      code: `import { x } from '../innerModule/internal';`,
+      filename: path.join(fixtures, 'nested/outerModule/sub/file.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
+    },
+    // a cousin file (not a direct child of feature) reaches a private folder via ../
+    {
+      code: `import { x } from '../feature/private/helpers';`,
+      filename: path.join(fixtures, 'private-pattern/other/file.ts'),
+      errors: [{ messageId: 'privateViolation' }],
     },
 
     // ── custom privatePatterns ─────────────────────────────────────────────
