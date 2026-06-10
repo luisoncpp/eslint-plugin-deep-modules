@@ -1,7 +1,7 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const { existsSync, isDirectory, isInsideDir, isDirectChildOf } = require('./pathUtils');
+const { existsSync, isDirectory, isInsideDir, isDirectChildOf, samePath } = require('./pathUtils');
 
 /**
  * On case-insensitive filesystems (Windows), existsSync('app.tsx') can find 'App.tsx'.
@@ -62,18 +62,17 @@ function findBoundaries(resolvedImport, options) {
 }
 
 function isImportThroughPublicInterface(resolvedBase, resolvedImport, boundary) {
-  const norm = p => path.normalize(p);
   if (boundary.type === 'index') {
     return (
-      norm(resolvedBase) === norm(boundary.moduleDir) ||
-      norm(resolvedImport) === norm(boundary.publicInterface)
+      samePath(resolvedBase, boundary.moduleDir) ||
+      samePath(resolvedImport, boundary.publicInterface)
     );
   }
   if (boundary.type === 'filefolder') {
     const pubWithoutExt = boundary.publicInterface.replace(/\.[tj]sx?$/, '');
     return (
-      norm(resolvedBase) === norm(pubWithoutExt) ||
-      norm(resolvedImport) === norm(boundary.publicInterface)
+      samePath(resolvedBase, pubWithoutExt) ||
+      samePath(resolvedImport, boundary.publicInterface)
     );
   }
   return false;
@@ -110,8 +109,7 @@ function findBoundaryViolation(resolvedBase, resolvedImport, importerFile, optio
   const boundaries = findBoundaries(resolvedImport, options);
   for (const boundary of boundaries) {
     const importerIsInside = isInsideDir(importerFile, boundary.moduleDir);
-    const importerIsPublicInterface =
-      path.normalize(importerFile) === path.normalize(boundary.publicInterface);
+    const importerIsPublicInterface = samePath(importerFile, boundary.publicInterface);
     if (importerIsInside || importerIsPublicInterface) break;
     if (!isImportThroughPublicInterface(resolvedBase, resolvedImport, boundary)) {
       return boundary;

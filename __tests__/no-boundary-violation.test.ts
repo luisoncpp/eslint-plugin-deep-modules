@@ -5,6 +5,15 @@ import rule from '../rules/no-boundary-violation';
 
 const fixtures = path.join(__dirname, '../__fixtures__');
 
+// Windows drive letters are case-insensitive. Depending on how the linting
+// process is launched, ESLint's reported filename may carry a lowercase drive
+// (`c:\`) while fs.realpathSync.native canonicalizes the module's public
+// interface to an uppercase drive (`C:\`). A naive string compare then fails to
+// recognize the owner file as its own public interface — a false positive.
+function withLowercaseDrive(filePath: string): string {
+  return filePath.replace(/^[A-Z]:/, driveLetter => driveLetter.toLowerCase());
+}
+
 const tester = new RuleTester({
   languageOptions: { ecmaVersion: 2022, sourceType: 'module' },
 });
@@ -28,6 +37,13 @@ tester.run('no-boundary-violation', rule, {
     {
       code: `import { x } from './Controller/SubSystem';`,
       filename: path.join(fixtures, 'filefolder-pattern/Controller.ts'),
+    },
+    // same owner import, but the filename carries a lowercase drive letter while
+    // realpath canonicalizes the public interface to uppercase — must still be
+    // recognized as the owner (regression: drive-letter-case false positive)
+    {
+      code: `import { x } from './Controller/SubSystem';`,
+      filename: withLowercaseDrive(path.join(fixtures, 'filefolder-pattern/Controller.ts')),
     },
     // outsider importing the public interface .ts file (not the folder internals)
     {

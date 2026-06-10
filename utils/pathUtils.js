@@ -11,6 +11,21 @@ function isDirectory(p) {
   catch { return false; }
 }
 
+/**
+ * Compares two paths for equality, tolerant of Windows drive-letter casing.
+ * fs.realpathSync.native canonicalizes the drive letter to uppercase, while a
+ * path derived from process.cwd() may carry a lowercase drive depending on how
+ * the process was launched. Folding the drive letter prevents a false mismatch
+ * without weakening the case-sensitive matching the rule relies on elsewhere.
+ */
+function foldDriveLetter(p) {
+  return path.normalize(p).replace(/^[a-z]:/, driveLetter => driveLetter.toUpperCase());
+}
+
+function samePath(a, b) {
+  return foldDriveLetter(a) === foldDriveLetter(b);
+}
+
 function isInsideDir(file, dir) {
   const rel = path.relative(dir, file);
   return !rel.startsWith('..') && !path.isAbsolute(rel);
@@ -53,4 +68,4 @@ function resolveImport(importerFile, importSource) {
   return null;
 }
 
-module.exports = { existsSync, isDirectory, isInsideDir, isDirectChildOf, matchesPattern, resolveImport };
+module.exports = { existsSync, isDirectory, isInsideDir, isDirectChildOf, matchesPattern, resolveImport, samePath };
