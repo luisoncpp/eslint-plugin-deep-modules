@@ -41,10 +41,15 @@ tester.run('no-boundary-violation', rule, {
     // same owner import, but the filename carries a lowercase drive letter while
     // realpath canonicalizes the public interface to uppercase — must still be
     // recognized as the owner (regression: drive-letter-case false positive)
-    {
-      code: `import { x } from './Controller/SubSystem';`,
-      filename: withLowercaseDrive(path.join(fixtures, 'filefolder-pattern/Controller.ts')),
-    },
+    // Only relevant on Windows where drive letters exist; skip on other platforms
+    // to avoid a duplicate-test-case error in ESLint's RuleTester.
+    ...(withLowercaseDrive(path.join(fixtures, 'filefolder-pattern/Controller.ts')) !==
+      path.join(fixtures, 'filefolder-pattern/Controller.ts')
+      ? [{
+          code: `import { x } from './Controller/SubSystem';`,
+          filename: withLowercaseDrive(path.join(fixtures, 'filefolder-pattern/Controller.ts')),
+        }]
+      : []),
     // outsider importing the public interface .ts file (not the folder internals)
     {
       code: `import { x } from './Controller';`,
