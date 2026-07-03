@@ -31,6 +31,11 @@ tester.run('no-boundary-violation', rule, {
       code: `import { x } from './internal';`,
       filename: path.join(fixtures, 'index-pattern/moduleA/index.ts'),
     },
+    // NodeNext .js specifier resolving to a .ts source, from inside the module
+    {
+      code: `import { x } from './internal.js';`,
+      filename: path.join(fixtures, 'index-pattern/moduleA/index.ts'),
+    },
 
     // ── file+folder pattern ────────────────────────────────────────────────
     // the .ts file (public interface) importing from its own folder
@@ -127,6 +132,12 @@ tester.run('no-boundary-violation', rule, {
     // outsider bypasses index and imports an internal directly
     {
       code: `import { x } from './moduleA/internal';`,
+      filename: path.join(fixtures, 'index-pattern/outside.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
+    },
+    // same bypass via a NodeNext .js specifier (server-style ESM imports)
+    {
+      code: `import { x } from './moduleA/internal.js';`,
       filename: path.join(fixtures, 'index-pattern/outside.ts'),
       errors: [{ messageId: 'boundaryViolation' }],
     },

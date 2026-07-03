@@ -55,15 +55,25 @@ function matchesPattern(filePath, patterns) {
   return patterns.some(pattern => compilePattern(pattern).test(normalized));
 }
 
+const JsExtensionPattern = /\.[cm]?jsx?$/;
+
 /**
  * Resolves an import source to an actual path on disk.
  * Checks .ts/.tsx extensions before treating as a directory.
+ * NodeNext ESM specifiers point at the emitted .js/.mjs/.cjs file
+ * (e.g. '../gear/schema.js'); those are remapped to the .ts/.tsx source
+ * so boundary checks apply to server code, not just extensionless imports.
  * Returns null if nothing found.
  */
 function resolveImport(importerFile, importSource) {
   const base = path.resolve(path.dirname(importerFile), importSource);
   if (existsSync(base + '.ts')) return base + '.ts';
   if (existsSync(base + '.tsx')) return base + '.tsx';
+  if (JsExtensionPattern.test(base)) {
+    const withoutJsExt = base.replace(JsExtensionPattern, '');
+    if (existsSync(withoutJsExt + '.ts')) return withoutJsExt + '.ts';
+    if (existsSync(withoutJsExt + '.tsx')) return withoutJsExt + '.tsx';
+  }
   if (existsSync(base)) return base;
   return null;
 }
