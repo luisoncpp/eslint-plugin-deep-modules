@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@alias/*": ["modules/*"],
+      "@alias-root": ["modules/moduleA/index.ts"]
+    }
+  }
+}

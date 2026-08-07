@@ -67,6 +67,12 @@ tester.run('no-boundary-violation', rule, {
       code: `import { x } from './private/helpers';`,
       filename: path.join(fixtures, 'private-pattern/feature/Sibling.ts'),
     },
+    // a file already inside the private folder may import a sibling implementation
+    // file also inside it — internal cohesion, not a boundary crossing
+    {
+      code: `import { x } from './other';`,
+      filename: path.join(fixtures, 'private-pattern/feature/private/helpers.ts'),
+    },
 
     // ── nested deep modules ────────────────────────────────────────────────
     // file inside outerModule may import innerModule's public interface

@@ -1,7 +1,8 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const { existsSync, isDirectory, isInsideDir, isDirectChildOf, samePath } = require('./pathUtils');
+const { existsSync, isDirectory, isInsideDir, isDirectChildOf, matchesPattern, samePath } = require('./pathUtils');
+const { readGroupDescriptor } = require('./groupFacades');
 
 /**
  * On case-insensitive filesystems (Windows), existsSync('app.tsx') can find 'App.tsx'.
@@ -23,12 +24,28 @@ function findExactCaseFile(parent, dirName) {
 }
 
 /**
+ * A `*.group.md` boundary, or null when the folder declares no group facades or
+ * when the group's own `ignore` patterns exclude the imported file.
+ */
+function findGroupBoundary(dir, resolvedImport) {
+  const descriptor = readGroupDescriptor(dir);
+  if (!descriptor) return null;
+  if (descriptor.ignore.length && matchesPattern(resolvedImport, descriptor.ignore)) return null;
+  return { type: 'group', moduleDir: dir, publicInterface: descriptor.facades[0], facades: descriptor.facades };
+}
+
+/** Every file that counts as the boundary's public entry point. */
+function publicInterfacesOf(boundary) {
+  return boundary.facades ?? [boundary.publicInterface];
+}
+
+/**
  * Collects all deep module boundaries from innermost to outermost
  * by walking up from the resolved import path.
- * Each boundary is { type: 'index'|'filefolder', moduleDir, publicInterface }.
+ * Each boundary is { type: 'index'|'filefolder'|'group', moduleDir, publicInterface }.
  */
 function findBoundaries(resolvedImport, options) {
-  const { indexPattern, fileFolderPattern } = options;
+  const { indexPattern, fileFolderPattern, groupPattern } = options;
   const boundaries = [];
   let dir = isDirectory(resolvedImport) ? resolvedImport : path.dirname(resolvedImport);
 
@@ -55,6 +72,11 @@ function findBoundaries(resolvedImport, options) {
       }
     }
 
+    if (groupPattern) {
+      const groupBoundary = findGroupBoundary(dir, resolvedImport);
+      if (groupBoundary) boundaries.push(groupBoundary);
+    }
+
     dir = parent;
   }
 
@@ -67,6 +89,14 @@ function isImportThroughPublicInterface(resolvedBase, resolvedImport, boundary) 
       samePath(resolvedBase, boundary.moduleDir) ||
       samePath(resolvedImport, boundary.publicInterface)
     );
+  }
+  if (boundary.type === 'group') {
+    return boundary.facades.some(facade => {
+      // A directory import ('../support') resolves to the folder; the bundler
+      // maps it to the folder's index file, so an index facade covers it.
+      if (samePath(resolvedBase, path.dirname(facade)) && /index\.[tj]sx?$/.test(facade)) return true;
+      return samePath(resolvedImport, facade) || samePath(resolvedBase, facade.replace(/\.[tj]sx?$/, ''));
+    });
   }
   if (boundary.type === 'filefolder') {
     const pubWithoutExt = boundary.publicInterface.replace(/\.[tj]sx?$/, '');
@@ -90,6 +120,11 @@ function findPrivateViolation(resolvedImport, importerFile, privatePatterns) {
     if (parent === current) break;
     const name = path.basename(current);
     if (privatePatterns.some(p => p.toLowerCase() === name.toLowerCase())) {
+      // A file already living inside this private folder is referencing a
+      // sibling implementation file — internal cohesion, not a boundary
+      // crossing. Only importers from OUTSIDE the private folder must be a
+      // direct sibling of the private folder (e.g. the facade next to it).
+      if (isInsideDir(importerFile, current)) return null;
       if (!isDirectChildOf(importerFile, parent)) {
         return { privateFolder: current, parentDir: parent };
       }
@@ -109,7 +144,7 @@ function findBoundaryViolation(resolvedBase, resolvedImport, importerFile, optio
   const boundaries = findBoundaries(resolvedImport, options);
   for (const boundary of boundaries) {
     const importerIsInside = isInsideDir(importerFile, boundary.moduleDir);
-    const importerIsPublicInterface = samePath(importerFile, boundary.publicInterface);
+    const importerIsPublicInterface = publicInterfacesOf(boundary).some(entry => samePath(importerFile, entry));
     if (importerIsInside || importerIsPublicInterface) break;
     if (!isImportThroughPublicInterface(resolvedBase, resolvedImport, boundary)) {
       return boundary;

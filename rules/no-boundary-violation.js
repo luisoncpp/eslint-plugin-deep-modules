@@ -6,6 +6,7 @@ const { findPrivateViolation, findBoundaryViolation } = require('../utils/module
 const DefaultOptions = {
   indexPattern: true,
   fileFolderPattern: true,
+  groupPattern: true,
   privatePatterns: ['private'],
   ignorePatterns: ['**/__tests__/**', '**/*.test.ts', '**/*.spec.ts'],
 };
@@ -14,6 +15,7 @@ function mergeOptions(rawOpts) {
   return {
     indexPattern: rawOpts.indexPattern ?? DefaultOptions.indexPattern,
     fileFolderPattern: rawOpts.fileFolderPattern ?? DefaultOptions.fileFolderPattern,
+    groupPattern: rawOpts.groupPattern ?? DefaultOptions.groupPattern,
     privatePatterns: rawOpts.privatePatterns ?? DefaultOptions.privatePatterns,
     ignorePatterns: rawOpts.ignorePatterns ?? DefaultOptions.ignorePatterns,
   };
@@ -23,20 +25,23 @@ function publicInterfaceLabel(boundary, importerFile) {
   if (boundary.type === 'index') {
     return path.relative(path.dirname(importerFile), boundary.moduleDir);
   }
-  const withoutExt = boundary.publicInterface.replace(/\.[tj]sx?$/, '');
-  return path.relative(path.dirname(importerFile), withoutExt);
+  const entries = boundary.facades ?? [boundary.publicInterface];
+  return entries
+    .map(entry => path.relative(path.dirname(importerFile), entry.replace(/\.[tj]sx?$/, '')))
+    .join("' or '");
 }
 
 /** @type {import('eslint').Rule.RuleModule} */
 module.exports = {
   meta: {
     type: 'problem',
-    docs: { description: 'Enforce deep module boundaries (index.ts, file+folder, private folder)' },
+    docs: { description: 'Enforce deep module boundaries (index.ts, file+folder, private folder, *.group.md facades)' },
     schema: [{
       type: 'object',
       properties: {
         indexPattern: { type: 'boolean' },
         fileFolderPattern: { type: 'boolean' },
+        groupPattern: { type: 'boolean' },
         privatePatterns: { type: 'array', items: { type: 'string' } },
         ignorePatterns: { type: 'array', items: { type: 'string' } },
       },
