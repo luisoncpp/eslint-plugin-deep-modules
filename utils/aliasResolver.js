@@ -1,7 +1,7 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const { existsSync } = require('./pathUtils');
+const { existsSync, samePath } = require('./pathUtils');
 
 const TsConfigFileName = 'tsconfig.json';
 const WildcardToken = '*';
@@ -120,4 +120,43 @@ function resolveAliasBase(importerFile, importSource) {
   return null;
 }
 
-module.exports = { resolveAliasBase };
+const SourceExtensionPattern = /\.[tj]sx?$/;
+
+function specifierForMapping(mapping, absoluteFile) {
+  const withoutExtension = absoluteFile.replace(SourceExtensionPattern, '');
+  for (const target of mapping.targets) {
+    if (!mapping.hasWildcard) {
+      if (samePath(target, absoluteFile) || samePath(target.replace(SourceExtensionPattern, ''), withoutExtension)) {
+        return mapping.prefix;
+      }
+      continue;
+    }
+    const wildcardIndex = target.indexOf(WildcardToken);
+    if (wildcardIndex === -1) continue;
+    const head = target.slice(0, wildcardIndex);
+    const tail = target.slice(wildcardIndex + 1);
+    const candidate = tail && absoluteFile.endsWith(tail) ? absoluteFile : withoutExtension;
+    if (!candidate.startsWith(head)) continue;
+    const matched = candidate.slice(head.length, candidate.length - (candidate === absoluteFile ? tail.length : 0));
+    if (!matched) continue;
+    return mapping.prefix + matched + mapping.suffix;
+  }
+  return null;
+}
+
+/**
+ * Inverse of `resolveAliasBase`: the alias specifier an importer should write for a
+ * file it must reach through a facade. Without it the rule would tell a file importing
+ * '@typerlords/shared/utils/itemKey' to use '../../../shared/src/index' — a path that
+ * is correct on disk but that nobody in this repo writes.
+ * Returns null when no mapping covers the file.
+ */
+function resolveAliasSpecifier(importerFile, absoluteFile) {
+  for (const mapping of findPathMappings(path.dirname(importerFile))) {
+    const specifier = specifierForMapping(mapping, absoluteFile);
+    if (specifier) return specifier;
+  }
+  return null;
+}
+
+module.exports = { resolveAliasBase, resolveAliasSpecifier };

@@ -67,6 +67,35 @@ tester.run('no-boundary-violation', rule, {
       code: `import { x } from './private/helpers';`,
       filename: path.join(fixtures, 'private-pattern/feature/Sibling.ts'),
     },
+
+    // ── tsconfig path aliases ──────────────────────────────────────────────
+    // a real package, and any specifier no mapping covers, is not ours to judge
+    {
+      code: `import React from 'react';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+    },
+    // exact alias pointing straight at the facade file
+    {
+      code: `import { x } from '@alias-root';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+    },
+    // wildcard alias resolving to the module directory (the bundler picks its index)
+    {
+      code: `import { x } from '@alias/moduleA';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+    },
+    // aliasPattern: false restores relative-only checking
+    {
+      code: `import { hidden } from '@alias/moduleA/hidden';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+      options: [{ aliasPattern: false }],
+    },
+    // a subpath alias for a module the facade re-exports wholesale publishes nothing
+    // the facade does not — a style preference, not a boundary breach
+    {
+      code: `import { x } from '@alias/moduleA/internal';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+    },
     // a file already inside the private folder may import a sibling implementation
     // file also inside it — internal cohesion, not a boundary crossing
     {
@@ -208,6 +237,15 @@ tester.run('no-boundary-violation', rule, {
       code: `import { x } from '../feature/private/helpers';`,
       filename: path.join(fixtures, 'private-pattern/other/file.ts'),
       errors: [{ messageId: 'privateViolation' }],
+    },
+
+    // ── tsconfig path aliases ──────────────────────────────────────────────
+    // the bypass an alias used to hide: a module the facade does NOT re-export.
+    // The suggestion must be an alias too — nobody writes the relative path here.
+    {
+      code: `import { hidden } from '@alias/moduleA/hidden';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+      errors: [{ messageId: 'boundaryViolation', data: { import: '@alias/moduleA/hidden', publicInterface: '@alias-root' } }],
     },
 
     // ── custom privatePatterns ─────────────────────────────────────────────

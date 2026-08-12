@@ -66,7 +66,12 @@ const JsExtensionPattern = /\.[cm]?jsx?$/;
  * Returns null if nothing found.
  */
 function resolveImport(importerFile, importSource) {
-  const base = path.resolve(path.dirname(importerFile), importSource);
+  return resolveFromBase(path.resolve(path.dirname(importerFile), importSource));
+}
+
+/** Same resolution as `resolveImport`, for a base path that was already computed
+ *  (an alias mapping produces one directly, with no importer-relative step). */
+function resolveFromBase(base) {
   if (existsSync(base + '.ts')) return base + '.ts';
   if (existsSync(base + '.tsx')) return base + '.tsx';
   if (JsExtensionPattern.test(base)) {
@@ -78,4 +83,4 @@ function resolveImport(importerFile, importSource) {
   return null;
 }
 
-module.exports = { existsSync, isDirectory, isInsideDir, isDirectChildOf, matchesPattern, resolveImport, samePath };
+module.exports = { existsSync, isDirectory, isInsideDir, isDirectChildOf, matchesPattern, resolveImport, resolveFromBase, samePath };

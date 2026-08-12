@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { existsSync, isDirectory, isInsideDir, isDirectChildOf, matchesPattern, samePath } = require('./pathUtils');
 const { readGroupDescriptor } = require('./groupFacades');
+const { isReExportedByAny } = require('./reExports');
 
 /**
  * On case-insensitive filesystems (Windows), existsSync('app.tsx') can find 'App.tsx'.
@@ -139,16 +140,24 @@ function findPrivateViolation(resolvedImport, importerFile, privatePatterns) {
  * Finds the first boundary the importer violates, or null if access is valid.
  * Checks boundaries from innermost to outermost so nested modules are handled correctly:
  * if B is inside A, a file outside A cannot import B's public interface either.
+ *
+ * `viaAlias` marks an import that arrived through a tsconfig path alias — a declared
+ * subpath entry point of the package. There, a module the facade already re-exports
+ * wholesale is not a breach (see reExports.js); only a module the facade does NOT
+ * publish is. A relative import gets no such latitude: inside the repo, reaching past
+ * a facade is a boundary crossing regardless of what the facade re-exports.
  */
-function findBoundaryViolation(resolvedBase, resolvedImport, importerFile, options) {
+function findBoundaryViolation(target, importerFile, options) {
+  const { resolvedBase, resolvedImport, viaAlias } = target;
   const boundaries = findBoundaries(resolvedImport, options);
   for (const boundary of boundaries) {
+    const publicInterfaces = publicInterfacesOf(boundary);
     const importerIsInside = isInsideDir(importerFile, boundary.moduleDir);
-    const importerIsPublicInterface = publicInterfacesOf(boundary).some(entry => samePath(importerFile, entry));
+    const importerIsPublicInterface = publicInterfaces.some(entry => samePath(importerFile, entry));
     if (importerIsInside || importerIsPublicInterface) break;
-    if (!isImportThroughPublicInterface(resolvedBase, resolvedImport, boundary)) {
-      return boundary;
-    }
+    if (isImportThroughPublicInterface(resolvedBase, resolvedImport, boundary)) continue;
+    if (viaAlias && isReExportedByAny(publicInterfaces, resolvedImport)) continue;
+    return boundary;
   }
   return null;
 }

@@ -1,12 +1,14 @@
 'use strict';
 const path = require('path');
-const { matchesPattern, resolveImport } = require('../utils/pathUtils');
+const { matchesPattern, resolveImport, resolveFromBase } = require('../utils/pathUtils');
 const { findPrivateViolation, findBoundaryViolation } = require('../utils/moduleDetector');
+const { resolveAliasBase, resolveAliasSpecifier } = require('../utils/aliasResolver');
 
 const DefaultOptions = {
   indexPattern: true,
   fileFolderPattern: true,
   groupPattern: true,
+  aliasPattern: true,
   privatePatterns: ['private'],
   ignorePatterns: ['**/__tests__/**', '**/*.test.ts', '**/*.spec.ts'],
 };
@@ -16,19 +18,37 @@ function mergeOptions(rawOpts) {
     indexPattern: rawOpts.indexPattern ?? DefaultOptions.indexPattern,
     fileFolderPattern: rawOpts.fileFolderPattern ?? DefaultOptions.fileFolderPattern,
     groupPattern: rawOpts.groupPattern ?? DefaultOptions.groupPattern,
+    aliasPattern: rawOpts.aliasPattern ?? DefaultOptions.aliasPattern,
     privatePatterns: rawOpts.privatePatterns ?? DefaultOptions.privatePatterns,
     ignorePatterns: rawOpts.ignorePatterns ?? DefaultOptions.ignorePatterns,
   };
 }
 
-function publicInterfaceLabel(boundary, importerFile) {
+/**
+ * The specifier the importer should write instead. An import that came in through a
+ * tsconfig alias gets an alias suggestion back — telling a file that wrote
+ * '@typerlords/shared/utils/itemKey' to use '../../../shared/src/index' would be a fix
+ * nobody in this repo writes by hand.
+ */
+function entryLabel(entryFile, importerFile, wasAliased) {
+  if (wasAliased) {
+    const specifier = resolveAliasSpecifier(importerFile, entryFile);
+    if (specifier) return specifier;
+  }
+  return path.relative(path.dirname(importerFile), entryFile.replace(/\.[tj]sx?$/, ''));
+}
+
+function publicInterfaceLabel(boundary, importerFile, wasAliased) {
   if (boundary.type === 'index') {
+    const indexFile = boundary.publicInterface ?? boundary.moduleDir;
+    if (wasAliased) {
+      const specifier = resolveAliasSpecifier(importerFile, indexFile);
+      if (specifier) return specifier.replace(/\/index$/, '');
+    }
     return path.relative(path.dirname(importerFile), boundary.moduleDir);
   }
   const entries = boundary.facades ?? [boundary.publicInterface];
-  return entries
-    .map(entry => path.relative(path.dirname(importerFile), entry.replace(/\.[tj]sx?$/, '')))
-    .join("' or '");
+  return entries.map(entry => entryLabel(entry, importerFile, wasAliased)).join("' or '");
 }
 
 /** @type {import('eslint').Rule.RuleModule} */
@@ -42,6 +62,7 @@ module.exports = {
         indexPattern: { type: 'boolean' },
         fileFolderPattern: { type: 'boolean' },
         groupPattern: { type: 'boolean' },
+        aliasPattern: { type: 'boolean' },
         privatePatterns: { type: 'array', items: { type: 'string' } },
         ignorePatterns: { type: 'array', items: { type: 'string' } },
       },
@@ -62,11 +83,23 @@ module.exports = {
     return {
       ImportDeclaration(node) {
         const importSource = node.source.value;
-        if (typeof importSource !== 'string' || !importSource.startsWith('.')) return;
+        if (typeof importSource !== 'string') return;
         if (matchesPattern(filename, opts.ignorePatterns)) return;
 
-        const resolvedBase = path.resolve(path.dirname(filename), importSource);
-        const resolvedImport = resolveImport(filename, importSource);
+        // A tsconfig-aliased import ('@/feature/x', '@scope/pkg/utils/x') addresses the
+        // same file a relative import would; resolving it here is what stops an alias
+        // from being a silent way around every boundary. Real packages ('react') and
+        // unmapped specifiers resolve to null and are skipped.
+        const wasAliased = !importSource.startsWith('.');
+        if (wasAliased && !opts.aliasPattern) return;
+        const resolvedBase = wasAliased
+          ? resolveAliasBase(filename, importSource)
+          : path.resolve(path.dirname(filename), importSource);
+        if (!resolvedBase) return;
+
+        const resolvedImport = wasAliased
+          ? resolveFromBase(resolvedBase)
+          : resolveImport(filename, importSource);
         if (!resolvedImport) return;
 
         const privateViolation = findPrivateViolation(resolvedImport, filename, opts.privatePatterns);
@@ -82,14 +115,18 @@ module.exports = {
           return;
         }
 
-        const boundaryViolation = findBoundaryViolation(resolvedBase, resolvedImport, filename, opts);
+        const boundaryViolation = findBoundaryViolation(
+          { resolvedBase, resolvedImport, viaAlias: wasAliased },
+          filename,
+          opts,
+        );
         if (boundaryViolation) {
           context.report({
             node,
             messageId: 'boundaryViolation',
             data: {
               import: importSource,
-              publicInterface: publicInterfaceLabel(boundaryViolation, filename),
+              publicInterface: publicInterfaceLabel(boundaryViolation, filename, wasAliased),
             },
           });
         }
