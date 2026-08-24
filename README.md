@@ -1,7 +1,14 @@
 # eslint-plugin-deep-modules
 
-One rule — `deep-modules/no-boundary-violation` — that fails an import which reaches
-*past* a module's public interface into its implementation.
+Two rules, answering two different questions about the same import:
+
+| Rule | Question | Fails when |
+|---|---|---|
+| `no-boundary-violation` | Did the import go **through** the public interface? | it reaches past one into a module's implementation |
+| `no-sibling-cycle` | Was the import allowed to point **that way**? | a `*.group.md` group imports a sibling group its `siblings:` list omits |
+
+The second exists because the first is direction-blind: two groups importing each other's
+public interface satisfy `no-boundary-violation` completely, and that is a cycle.
 
 This folder is self-contained and meant to be copied into another repo intact, so its
 documentation lives here rather than in the host project's `docs/`. Everything the host
@@ -16,7 +23,10 @@ import deepModules from "./Tools/eslint-plugin-deep-modules/index.js";
 export default [
   {
     plugins: { "deep-modules": deepModules },
-    rules: { "deep-modules/no-boundary-violation": "error" },
+    rules: {
+      "deep-modules/no-boundary-violation": "error",
+      "deep-modules/no-sibling-cycle": "error",
+    },
   },
 ];
 ```
@@ -46,7 +56,8 @@ Frontmatter only; the body is ignored by the rule.
 ```yaml
 ---
 facades: ["index.ts"]
-ignore: ["legacy/**"]     # `exclude:` is accepted as a synonym
+ignore: ["legacy/**"]        # `exclude:` is accepted as a synonym
+siblings: ["support"]        # optional; see no-sibling-cycle
 ---
 ```
 
@@ -54,6 +65,42 @@ ignore: ["legacy/**"]     # `exclude:` is accepted as a synonym
 block (`- "a.ts"`) list syntax both parse. A descriptor whose facade points **outside**
 its own folder is skipped — that group is rooted elsewhere and its membership cannot be
 derived from the folder tree.
+
+## `no-sibling-cycle`
+
+A set of sibling groups under one parent folder is a dependency graph. This rule keeps that
+graph acyclic by making every edge **declared** rather than inferred: each descriptor lists
+the sibling folders its members may import.
+
+```yaml
+siblings: ["grid", "support"]   # may import these two peers
+siblings: []                    # a sink: may import no peer at all
+# key absent                    # this group opts out of the rule entirely
+```
+
+`siblings: []` and an absent key are deliberately **not** the same thing. The empty list is
+the load-bearing declaration — it is what makes a folder a safe home for anything two peers
+share, because nothing placed there can close a loop.
+
+Scope, deliberately narrow:
+
+- Only **true siblings** are judged — both groups must share a parent folder. An import into
+  the importer's own group, into an unrelated subtree, or into a group nested at another
+  depth is not this rule's business.
+- Re-exports count. `export { x } from '../peer'` builds the same edge an import does, and
+  skipping it would leave one way to rebuild a cycle straight through a public interface.
+- `ignorePatterns` matches `no-boundary-violation`'s, so tests may deep-import freely.
+
+**Why a per-file rule is enough:** the rule never builds a dependency graph. It compares one
+resolved import against one declared list. The acyclicity comes from the declarations being
+a DAG, which a reviewer can verify by reading eight lines of frontmatter — and the rule then
+holds every file to it.
+
+**What a sibling cycle costs if it does form:** nothing visible, for a while. Everything
+crossing it works while it is read at *render* time (a hoisted `function`). The first
+module-eval-time read across the loop — a top-level `const` derived from an imported value,
+a decorator, a class `extends` — resolves to `undefined`, and that surfaces as a blank
+render, not an import error.
 
 ## Import resolution
 
@@ -122,9 +169,11 @@ check the lint script's paths before suspecting the rule.
 ```
 index.js                     plugin entry (facade)
 rules/no-boundary-violation.js
+rules/no-sibling-cycle.js
 utils/pathUtils.js           path predicates, samePath, resolveImport/resolveFromBase
 utils/moduleDetector.js      boundary discovery + violation decision
 utils/groupFacades.js        *.group.md frontmatter parsing
+utils/siblingGroups.js       declaring-group lookup + sibling-edge verdict
 utils/aliasResolver.js       tsconfig paths → absolute path
 utils/reExports.js           facade re-export scanning
 __tests__/                   RuleTester suite
@@ -137,10 +186,10 @@ The rule reads the filesystem, so tests need real fixture files, not inline code
 
 | What | Where | Why |
 |---|---|---|
-| Plugin registration | host `eslint.config.js` | the rule is off until registered |
+| Plugin registration | host `eslint.config.js` | both rules are off until registered |
 | Lint script paths | host `package.json` | files outside the glob are never checked |
 | Test runner | host jest/vitest config must match `**/__tests__/**/*.test.ts` | the suite lives in this folder |
 | `tsconfig.json` `paths` | host repo | alias resolution reads it; nothing is hardcoded here |
-| `*.group.md` files | host source tree | optional; only `facades`/`ignore`/`exclude` are read |
+| `*.group.md` files | host source tree | optional; only `facades`/`ignore`/`exclude`/`siblings` are read |
 
 Nothing else in this folder refers to the host project by name.

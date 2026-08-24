@@ -5,8 +5,8 @@ const { isInsideDir } = require('./pathUtils');
 
 const GroupFileSuffix = '.group.md';
 const FrontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---/;
-const InlineListPattern = /^(facades|ignore|exclude):\s*\[(.*)\]\s*$/;
-const BlockListStartPattern = /^(facades|ignore|exclude):\s*$/;
+const InlineListPattern = /^(facades|ignore|exclude|siblings):\s*\[(.*)\]\s*$/;
+const BlockListStartPattern = /^(facades|ignore|exclude|siblings):\s*$/;
 const BlockListItemPattern = /^-\s*(.+?)\s*$/;
 const QuotedItemPattern = /["']([^"']+)["']/g;
 
@@ -26,7 +26,11 @@ function parseGroupFile(filePath) {
   catch { return null; }
   if (!frontmatter) return null;
 
-  const lists = { facades: [], ignore: [], exclude: [] };
+  const lists = { facades: [], ignore: [], exclude: [], siblings: [] };
+  // `siblings: []` (deliberately empty) and an absent `siblings` key mean opposite things — the
+  // first forbids every sibling import, the second opts the group out of the check entirely — so
+  // the parser records which keys the descriptor actually wrote, not just their contents.
+  const declaredKeys = new Set();
   let openBlockList = null;
 
   for (const rawLine of frontmatter[1].split(/\r?\n/)) {
@@ -34,12 +38,14 @@ function parseGroupFile(filePath) {
     const inlineList = InlineListPattern.exec(line);
     if (inlineList) {
       lists[inlineList[1]] = parseListEntries(inlineList[2]);
+      declaredKeys.add(inlineList[1]);
       openBlockList = null;
       continue;
     }
     const blockListStart = BlockListStartPattern.exec(line);
     if (blockListStart) {
       openBlockList = blockListStart[1];
+      declaredKeys.add(openBlockList);
       continue;
     }
     const blockListItem = openBlockList && BlockListItemPattern.exec(line);
@@ -49,7 +55,7 @@ function parseGroupFile(filePath) {
     }
     openBlockList = null;
   }
-  return lists;
+  return { lists, declaredKeys };
 }
 
 /**
@@ -59,7 +65,10 @@ function parseGroupFile(filePath) {
  * implies every other module in the group is private.
  * `ignore` (and the `exclude` spelling some descriptors use) carve files out of
  * the group, so imports of those files cross no boundary.
- * Returns { facades: absolute paths, ignore: patterns } or null.
+ * `siblings` names the sibling groups this one is allowed to import (see
+ * `no-sibling-cycle`); it is `null` when the descriptor does not declare the key,
+ * which opts the group out of that rule.
+ * Returns { facades: absolute paths, ignore: patterns, siblings } or null.
  */
 function readGroupDescriptor(dir) {
   if (groupCache.has(dir)) return groupCache.get(dir);
@@ -70,14 +79,19 @@ function readGroupDescriptor(dir) {
 
   for (const entry of dirEntries) {
     if (!entry.endsWith(GroupFileSuffix)) continue;
-    const lists = parseGroupFile(path.join(dir, entry));
-    if (!lists || !lists.facades.length) continue;
+    const parsed = parseGroupFile(path.join(dir, entry));
+    if (!parsed || !parsed.lists.facades.length) continue;
+    const { lists, declaredKeys } = parsed;
     const facades = lists.facades.map(facade => path.resolve(dir, facade));
     // A facade outside the descriptor's own folder (e.g. `../Solver.ts`) means the
     // group is rooted elsewhere and its membership comes from `match`, which this
     // rule cannot evaluate — enforcing the folder as the boundary would be wrong.
     if (facades.some(facade => !isInsideDir(facade, dir))) continue;
-    descriptor = { facades, ignore: [...lists.ignore, ...lists.exclude] };
+    descriptor = {
+      facades,
+      ignore: [...lists.ignore, ...lists.exclude],
+      siblings: declaredKeys.has('siblings') ? lists.siblings : null,
+    };
     break;
   }
 
