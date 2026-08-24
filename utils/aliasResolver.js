@@ -92,14 +92,36 @@ function findPathMappings(startDir) {
   return mappings;
 }
 
+/**
+ * The candidate files a mapping produces for an import, each paired with the
+ * directory the mapping itself declares as the entry point — the target's text
+ * before the wildcard. `@scope/pkg/utils/*` -> `shared/src/utils/*` declares
+ * `shared/src/utils`; the repo-root `@/*` -> `src/*` declares only `src`.
+ */
 function substitute(mapping, importSource) {
   if (!mapping.hasWildcard) {
-    return importSource === mapping.prefix ? mapping.targets : [];
+    return importSource === mapping.prefix
+      ? mapping.targets.map(target => ({ file: target, entryRoot: path.dirname(target) }))
+      : [];
   }
   if (!importSource.startsWith(mapping.prefix) || !importSource.endsWith(mapping.suffix)) return [];
   const matched = importSource.slice(mapping.prefix.length, importSource.length - mapping.suffix.length);
   if (!matched) return [];
-  return mapping.targets.map(target => target.replace(WildcardToken, matched));
+  return mapping.targets.map(target => ({
+    file: target.replace(WildcardToken, matched),
+    entryRoot: path.dirname(target.slice(0, target.indexOf(WildcardToken)) + WildcardToken),
+  }));
+}
+
+/** First mapping candidate that exists on disk, or null. */
+function findAliasCandidate(importerFile, importSource) {
+  for (const mapping of findPathMappings(path.dirname(importerFile))) {
+    for (const candidate of substitute(mapping, importSource)) {
+      const file = candidate.file;
+      if (existsSync(file) || existsSync(file + '.ts') || existsSync(file + '.tsx')) return candidate;
+    }
+  }
+  return null;
 }
 
 /**
@@ -110,14 +132,19 @@ function substitute(mapping, importSource) {
  * Returns null for real packages ('react') and unmapped specifiers.
  */
 function resolveAliasBase(importerFile, importSource) {
-  for (const mapping of findPathMappings(path.dirname(importerFile))) {
-    for (const candidate of substitute(mapping, importSource)) {
-      if (existsSync(candidate) || existsSync(candidate + '.ts') || existsSync(candidate + '.tsx')) {
-        return candidate;
-      }
-    }
-  }
-  return null;
+  return findAliasCandidate(importerFile, importSource)?.file ?? null;
+}
+
+/**
+ * The directory the matched alias mapping declares as an entry point. A mapping
+ * whose target points below a facade (`@scope/pkg/utils/*`) declares that subpath
+ * as published surface; a repo-root mapping (`@/*` -> `src/*`) declares nothing
+ * about any facade beneath it. That difference is what decides whether the
+ * re-export latitude in `findBoundaryViolation` applies.
+ * Returns null for real packages and unmapped specifiers.
+ */
+function resolveAliasEntryRoot(importerFile, importSource) {
+  return findAliasCandidate(importerFile, importSource)?.entryRoot ?? null;
 }
 
 const SourceExtensionPattern = /\.[tj]sx?$/;
@@ -159,4 +186,4 @@ function resolveAliasSpecifier(importerFile, absoluteFile) {
   return null;
 }
 
-module.exports = { resolveAliasBase, resolveAliasSpecifier };
+module.exports = { resolveAliasBase, resolveAliasEntryRoot, resolveAliasSpecifier };

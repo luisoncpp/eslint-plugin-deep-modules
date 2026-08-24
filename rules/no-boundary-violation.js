@@ -2,7 +2,7 @@
 const path = require('path');
 const { matchesPattern, resolveImport, resolveFromBase } = require('../utils/pathUtils');
 const { findPrivateViolation, findBoundaryViolation } = require('../utils/moduleDetector');
-const { resolveAliasBase, resolveAliasSpecifier } = require('../utils/aliasResolver');
+const { resolveAliasBase, resolveAliasEntryRoot, resolveAliasSpecifier } = require('../utils/aliasResolver');
 
 const DefaultOptions = {
   indexPattern: true,
@@ -43,7 +43,7 @@ function publicInterfaceLabel(boundary, importerFile, wasAliased) {
     const indexFile = boundary.publicInterface ?? boundary.moduleDir;
     if (wasAliased) {
       const specifier = resolveAliasSpecifier(importerFile, indexFile);
-      if (specifier) return specifier.replace(/\/index$/, '');
+      if (specifier) return specifier.replace(/[/\\]index$/, '').replace(/\\/g, '/');
     }
     return path.relative(path.dirname(importerFile), boundary.moduleDir);
   }
@@ -116,7 +116,11 @@ module.exports = {
         }
 
         const boundaryViolation = findBoundaryViolation(
-          { resolvedBase, resolvedImport, viaAlias: wasAliased },
+          {
+            resolvedBase,
+            resolvedImport,
+            aliasEntryRoot: wasAliased ? resolveAliasEntryRoot(filename, importSource) : null,
+          },
           filename,
           opts,
         );

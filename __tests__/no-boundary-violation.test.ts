@@ -90,12 +90,36 @@ tester.run('no-boundary-violation', rule, {
       filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
       options: [{ aliasPattern: false }],
     },
-    // a subpath alias for a module the facade re-exports wholesale publishes nothing
-    // the facade does not — a style preference, not a boundary breach
+    // a mapping rooted AT the module ('@sub/moduleA/*' -> 'modules/moduleA/*') declares
+    // its subpaths as entry points, so reaching one the facade re-exports wholesale
+    // publishes nothing the facade does not — a style preference, not a breach
     {
-      code: `import { x } from '@alias/moduleA/internal';`,
+      code: `import { x } from '@sub/moduleA/internal';`,
       filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
     },
+    // ── root alias over a whole source tree ('@root/*' -> 'sources/*') ─────
+    // The shape of a repo-wide alias sitting above a *.group.md facade with a
+    // complete barrel. Landing ON a facade is fine however you spell the alias.
+    {
+      code: `import { published } from '@root/moduleB';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+    },
+    {
+      code: `import { internal } from '@root/outer/mid/moduleC';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+    },
+    // '@moduleB/*' -> 'sources/moduleB/*' is rooted AT the module, so it declares
+    // its subpaths as entry points: what the barrel publishes stays reachable...
+    {
+      code: `import { published } from '@moduleB/published';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+    },
+    // ...including a file a folder deeper than the facade itself
+    {
+      code: `import { deepPublished } from '@moduleB/sub/deepPublished';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+    },
+
     // a file already inside the private folder may import a sibling implementation
     // file also inside it — internal cohesion, not a boundary crossing
     {
@@ -246,6 +270,57 @@ tester.run('no-boundary-violation', rule, {
       code: `import { hidden } from '@alias/moduleA/hidden';`,
       filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
       errors: [{ messageId: 'boundaryViolation', data: { import: '@alias/moduleA/hidden', publicInterface: '@alias-root' } }],
+    },
+    // an alias rooted ABOVE the module ('@alias/*' -> 'modules/*', the shape of this
+    // repo's own '@/*' -> 'src/*') names no module and so declares no entry point.
+    // Re-export latitude must not apply, or the alias becomes a blanket way past every
+    // facade beneath it — how '@/network/LobbyManager' went unflagged.
+    {
+      code: `import { x } from '@alias/moduleA/internal';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
+    },
+    // a module-rooted mapping still cannot reach what the facade does not publish
+    {
+      code: `import { hidden } from '@sub/moduleA/hidden';`,
+      filename: path.join(fixtures, 'alias-pattern/consumer.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
+    },
+
+    // ── root alias over a whole source tree ('@root/*' -> 'sources/*') ─────
+    // The bug this fixture exists for: a barrel-exported module reached through a
+    // tree-wide alias past a *.group.md facade. The mapping names 'sources', not
+    // the module, so the re-export allowance must not apply — the suggestion is
+    // the facade, spelled as an alias. It comes from the most specific mapping
+    // covering the facade ('@moduleB/*'), not necessarily the one the author
+    // wrote; this fixture declares two mappings where a repo often declares one.
+    {
+      code: `import { published } from '@root/moduleB/published';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+      errors: [{
+        messageId: 'boundaryViolation',
+        data: { import: '@root/moduleB/published', publicInterface: '@moduleB' },
+      }],
+    },
+    // same, one folder deeper than the facade
+    {
+      code: `import { deepPublished } from '@root/moduleB/sub/deepPublished';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
+    },
+    // depth does not dilute it: an alias root three folders above an index facade
+    // still declares nothing about that facade
+    {
+      code: `import { internal } from '@root/outer/mid/moduleC/internal';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
+    },
+    // a module-rooted mapping is not a free pass either — the facade does not
+    // publish 'hidden'
+    {
+      code: `import { hidden } from '@moduleB/hidden';`,
+      filename: path.join(fixtures, 'alias-root-pattern/consumer.ts'),
+      errors: [{ messageId: 'boundaryViolation' }],
     },
 
     // ── custom privatePatterns ─────────────────────────────────────────────

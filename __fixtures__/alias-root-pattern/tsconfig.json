@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@root/*": ["sources/*"],
+      "@moduleB/*": ["sources/moduleB/*"]
+    }
+  }
+}

@@ -3,6 +3,7 @@
     "baseUrl": ".",
     "paths": {
       "@alias/*": ["modules/*"],
+      "@sub/moduleA/*": ["modules/moduleA/*"],
       "@alias-root": ["modules/moduleA/index.ts"]
     }
   }

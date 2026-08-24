@@ -119,16 +119,31 @@ back to relative-only checking.
 
 ### The re-export allowance
 
-An **aliased** import clears a boundary when the facade already re-exports the target
-module wholesale (`export * from './types/zone.js'`). The subpath is published by the
-alias table and its contents are published by the facade, so reaching it directly exposes
-nothing extra — it is a style preference, not a leak. A **relative** import gets no such
-allowance: reaching into a folder is exactly what the rule exists to stop.
+An aliased import clears a boundary when **both** hold:
 
-This matters more than it sounds. Switching alias resolution on for the first time in a
-repo will flag every subpath-alias import of a barrel-exported module; without this
-allowance the only fix is a mass rewrite. What it does still flag is the genuine case —
-a module the facade does *not* re-export — which is usually a gap in the barrel rather
+1. the matched mapping's **target root** — the target text before the wildcard — is the
+   boundary folder itself or something inside it, and
+2. the facade already re-exports the target module wholesale
+   (`export * from './types/zone.js'`).
+
+`@scope/pkg/utils/*` → `shared/src/utils/*` under the `shared/src` facade satisfies (1):
+the mapping names that subpath, so the alias table publishes it and the facade publishes
+its contents — reaching it directly exposes nothing extra, a style preference rather than
+a leak.
+
+A mapping rooted **above** the boundary does not. `@/*` → `src/*` names only `src` and
+says nothing about the facade at `src/network`, so `@/network/LobbyManager` is a crossing
+exactly as `../network/LobbyManager` would be. Skipping check (1) makes a single repo-root
+alias a blanket exemption from every facade beneath it — the rule then passes a whole
+`src/` tree while an external audit reports the violations.
+
+A **relative** import gets no allowance at all: reaching into a folder is exactly what the
+rule exists to stop.
+
+Condition (2) matters more than it sounds. Switching alias resolution on for the first
+time in a repo will flag every subpath-alias import of a barrel-exported module; without
+this allowance the only fix is a mass rewrite. What it does still flag is the genuine case
+— a module the facade does *not* re-export — which is usually a gap in the barrel rather
 than a bad import.
 
 ## Gotchas learned the hard way

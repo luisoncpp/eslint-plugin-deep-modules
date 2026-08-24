@@ -141,14 +141,21 @@ function findPrivateViolation(resolvedImport, importerFile, privatePatterns) {
  * Checks boundaries from innermost to outermost so nested modules are handled correctly:
  * if B is inside A, a file outside A cannot import B's public interface either.
  *
- * `viaAlias` marks an import that arrived through a tsconfig path alias — a declared
- * subpath entry point of the package. There, a module the facade already re-exports
- * wholesale is not a breach (see reExports.js); only a module the facade does NOT
- * publish is. A relative import gets no such latitude: inside the repo, reaching past
- * a facade is a boundary crossing regardless of what the facade re-exports.
+ * `aliasEntryRoot` is the directory the matched tsconfig path alias names as its target
+ * root. When that root is the boundary itself or something inside it
+ * (`@scope/pkg/utils/*` -> `shared/src/utils/*` under the `shared/src` facade), the
+ * mapping declares that subpath as a published entry point, so a module the facade
+ * already re-exports wholesale is not a breach (see reExports.js); only a module the
+ * facade does NOT publish is.
+ *
+ * An alias rooted ABOVE the boundary grants no such latitude: `@/*` -> `src/*` names
+ * only `src` and says nothing about `src/network`'s facade, so `@/network/LobbyManager`
+ * is as much a boundary crossing as the relative path would be. Neither does a relative
+ * import — inside the repo, reaching past a facade is a crossing regardless of what the
+ * facade re-exports.
  */
 function findBoundaryViolation(target, importerFile, options) {
-  const { resolvedBase, resolvedImport, viaAlias } = target;
+  const { resolvedBase, resolvedImport, aliasEntryRoot } = target;
   const boundaries = findBoundaries(resolvedImport, options);
   for (const boundary of boundaries) {
     const publicInterfaces = publicInterfacesOf(boundary);
@@ -156,7 +163,8 @@ function findBoundaryViolation(target, importerFile, options) {
     const importerIsPublicInterface = publicInterfaces.some(entry => samePath(importerFile, entry));
     if (importerIsInside || importerIsPublicInterface) break;
     if (isImportThroughPublicInterface(resolvedBase, resolvedImport, boundary)) continue;
-    if (viaAlias && isReExportedByAny(publicInterfaces, resolvedImport)) continue;
+    const aliasDeclaresSubpath = Boolean(aliasEntryRoot) && isInsideDir(aliasEntryRoot, boundary.moduleDir);
+    if (aliasDeclaresSubpath && isReExportedByAny(publicInterfaces, resolvedImport)) continue;
     return boundary;
   }
   return null;
